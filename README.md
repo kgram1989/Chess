@@ -4,6 +4,8 @@ A browser chess game against a computer opponent. No build step and no dependenc
 Open `index.html`, or serve the folder with any static web server.
 
 - Full chess rules: castling, en passant, promotion, check, checkmate, stalemate, draw rules
+- Chess960 (Fischer Random): pick any of the 960 starting positions by number or shuffle one;
+  to castle, click the king and then the rook
 - Five difficulty levels, from Beginner (mostly random) to Master
 - Move history with back and forward navigation, undo, plain-English move list
 - Several piece sets and board themes

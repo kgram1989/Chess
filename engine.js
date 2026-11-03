@@ -1,6 +1,8 @@
 /* Chess engine: rules, move generation, and alpha-beta search.
    Board: 64-element array, index = row*8 + col, row 0 = rank 8 (top). '' = empty.
-   Uppercase = white, lowercase = black. */
+   Uppercase = white, lowercase = black.
+   Supports standard chess and Chess960: castling rights (cr, 'KQkq' subset) map to the
+   rook squares in rk, and a castling move carries the rook's from/to squares. */
 (function (root) {
   'use strict';
 
@@ -20,10 +22,46 @@
     }
     let epSq = -1;
     if (ep && ep !== '-') epSq = FILES.indexOf(ep[0]) + (8 - +ep[1]) * 8;
-    return { board, turn, cr: cr === '-' ? '' : cr, ep: epSq, half: +half || 0, full: +full || 1 };
+    const s = { board, turn, cr: '', rk: {}, ep: epSq, half: +half || 0, full: +full || 1 };
+    if (cr && cr !== '-') for (const ch of cr) addRight(s, ch);
+    s.cr = 'KQkq'.split('').filter(l => s.cr.includes(l)).join('');
+    return s;
+  }
+
+  // Castling right from a FEN letter: K/Q/k/q (X-FEN: outermost rook on that side of the
+  // king) or a rook file A-H/a-h (Shredder-FEN).
+  function addRight(s, ch) {
+    const w = ch === ch.toUpperCase(), row = w ? 7 : 0, R = w ? 'R' : 'r', b = s.board;
+    const k = b.indexOf(w ? 'K' : 'k');
+    if (k < 0 || k >> 3 !== row) return;
+    const kc = k & 7, u = ch.toUpperCase();
+    let rc = -1;
+    if (u === 'K') { for (let c = 7; c > kc; c--) if (b[row * 8 + c] === R) { rc = c; break; } }
+    else if (u === 'Q') { for (let c = 0; c < kc; c++) if (b[row * 8 + c] === R) { rc = c; break; } }
+    else { const f = FILES.indexOf(ch.toLowerCase()); if (f >= 0 && b[row * 8 + f] === R) rc = f; }
+    if (rc < 0 || rc === kc) return;
+    const letter = rc > kc ? (w ? 'K' : 'k') : (w ? 'Q' : 'q');
+    if (!s.cr.includes(letter)) { s.cr += letter; s.rk[letter] = row * 8 + rc; }
   }
 
   const initState = () => parseFEN(START_FEN);
+
+  // Chess960 start position n (0-959) in Scharnagl numbering; 518 is the standard position.
+  const KN5 = [[0, 1], [0, 2], [0, 3], [0, 4], [1, 2], [1, 3], [1, 4], [2, 3], [2, 4], [3, 4]];
+  function chess960FEN(n) {
+    n = ((Math.floor(n) % 960) + 960) % 960;
+    const r = Array(8).fill('');
+    const put = (k, p) => { for (let i = 0, e = 0; i < 8; i++) if (!r[i] && e++ === k) { r[i] = p; return; } };
+    r[(n % 4) * 2 + 1] = 'B'; n = Math.floor(n / 4);   // light-squared bishop: b, d, f or h
+    r[(n % 4) * 2] = 'B'; n = Math.floor(n / 4);       // dark-squared bishop: a, c, e or g
+    put(n % 6, 'Q'); n = Math.floor(n / 6);
+    const [n1, n2] = KN5[n];
+    put(n2, 'N'); put(n1, 'N');
+    put(0, 'R'); put(0, 'K'); put(0, 'R');             // king always between the rooks
+    const back = r.join('');
+    return `${back.toLowerCase()}/pppppppp/8/8/8/8/PPPPPPPP/${back} w KQkq - 0 1`;
+  }
+  const chess960State = n => parseFEN(chess960FEN(n));
 
   const KN = [[1, 2], [2, 1], [-1, 2], [-2, 1], [1, -2], [2, -1], [-1, -2], [-2, -1]];
   const KG = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
@@ -127,42 +165,52 @@
       }
     }
 
-    // Castling
-    const home = w ? 60 : 4, K = w ? 'K' : 'k', R = w ? 'R' : 'r';
-    if (b[home] === K && !attacked(b, home, enemy)) {
-      if (s.cr.includes(w ? 'K' : 'k') && b[home + 3] === R && !b[home + 1] && !b[home + 2] &&
-          !attacked(b, home + 1, enemy) && !attacked(b, home + 2, enemy)) add(home, home + 2, 'c');
-      if (s.cr.includes(w ? 'Q' : 'q') && b[home - 4] === R && !b[home - 1] && !b[home - 2] && !b[home - 3] &&
-          !attacked(b, home - 1, enemy) && !attacked(b, home - 2, enemy)) add(home, home - 2, 'c');
+    // Castling (standard and Chess960): the king ends on g/c, the rook on f/d. Every square
+    // either piece crosses must be empty apart from those two, and the king may not start in,
+    // cross or land on an attacked square (landing is checked by legal()).
+    const back = w ? 7 : 0, R = w ? 'R' : 'r', ks = s.cr ? kingSq(b, side) : -1;
+    if (ks >= 0 && ks >> 3 === back) {
+      for (const L of w ? 'KQ' : 'kq') {
+        if (!s.cr.includes(L)) continue;
+        const rs = s.rk[L];
+        if (b[rs] !== R) continue;
+        const kSide = L === 'K' || L === 'k';
+        const kTo = back * 8 + (kSide ? 6 : 2), rTo = back * 8 + (kSide ? 5 : 3);
+        const lo = Math.min(ks, kTo, rs, rTo), hi = Math.max(ks, kTo, rs, rTo);
+        let ok = true;
+        for (let q = lo; q <= hi && ok; q++) if (b[q] && q !== ks && q !== rs) ok = false;
+        if (!ok) continue;
+        const t = b.slice(); t[ks] = t[rs] = '';
+        for (let q = Math.min(ks, kTo); q <= Math.max(ks, kTo) && ok; q++) if (attacked(t, q, enemy)) ok = false;
+        if (ok) moves.push({ from: ks, to: kTo, flag: 'c', rook: rs, rookTo: rTo, side: kSide ? 'k' : 'q' });
+      }
     }
     return moves;
   }
 
   function apply(s, m) {
-    const b = s.board.slice(), p = b[m.from], w = s.turn === 'w';
-    b[m.from] = '';
-    if (m.flag === 'e') b[w ? m.to + 8 : m.to - 8] = '';
-    b[m.to] = m.promo ? (w ? m.promo : m.promo.toLowerCase()) : p;
-    if (m.flag === 'c') {
-      if (m.to > m.from) { b[m.to - 1] = b[m.to + 1]; b[m.to + 1] = ''; }
-      else { b[m.to + 1] = b[m.to - 2]; b[m.to - 2] = ''; }
+    const b = s.board.slice(), p = b[m.from], w = s.turn === 'w', castle = m.flag === 'c';
+    if (castle) {
+      // Clear both squares first: in Chess960 the king or rook may land on the other's start.
+      b[m.from] = b[m.rook] = '';
+      b[m.to] = p; b[m.rookTo] = w ? 'R' : 'r';
+    } else {
+      b[m.from] = '';
+      if (m.flag === 'e') b[w ? m.to + 8 : m.to - 8] = '';
+      b[m.to] = m.promo ? (w ? m.promo : m.promo.toLowerCase()) : p;
     }
     let cr = s.cr;
     if (cr) {
       if (p === 'K') cr = cr.replace(/[KQ]/g, '');
       if (p === 'k') cr = cr.replace(/[kq]/g, '');
-      for (const sq of [m.from, m.to]) {
-        if (sq === 63) cr = cr.replace('K', '');
-        else if (sq === 56) cr = cr.replace('Q', '');
-        else if (sq === 7) cr = cr.replace('k', '');
-        else if (sq === 0) cr = cr.replace('q', '');
-      }
+      for (const L of s.cr) if (s.rk[L] === m.from || s.rk[L] === m.to) cr = cr.replace(L, '');
     }
-    const reset = p === 'P' || p === 'p' || s.board[m.to] || m.flag === 'e';
+    const reset = p === 'P' || p === 'p' || (s.board[m.to] && !castle) || m.flag === 'e';
     return {
       board: b,
       turn: w ? 'b' : 'w',
       cr,
+      rk: s.rk,
       ep: m.flag === 'd' ? (m.from + m.to) / 2 : -1,
       half: reset ? 0 : s.half + 1,
       full: w ? s.full : s.full + 1,
@@ -198,14 +246,14 @@
   function san(s, m, moves) {
     const piece = s.board[m.from], p = piece.toUpperCase();
     let t;
-    if (m.flag === 'c') t = m.to > m.from ? 'O-O' : 'O-O-O';
+    if (m.flag === 'c') t = m.side === 'k' ? 'O-O' : 'O-O-O';
     else {
       const cap = s.board[m.to] || m.flag === 'e';
       t = '';
       if (p === 'P') { if (cap) t += FILES[m.from & 7]; }
       else {
         t += p;
-        const others = moves.filter(o => o !== m && o.to === m.to && s.board[o.from] === piece);
+        const others = moves.filter(o => o.from !== m.from && o.flag !== 'c' && o.to === m.to && s.board[o.from] === piece);
         if (others.length) {
           const sameFile = others.some(o => (o.from & 7) === (m.from & 7));
           const sameRank = others.some(o => (o.from >> 3) === (m.from >> 3));
@@ -271,7 +319,7 @@
   function order(moves, s) {
     const b = s.board;
     for (const m of moves) {
-      const cap = b[m.to] ? VAL[b[m.to].toLowerCase()] : (m.flag === 'e' ? 100 : 0);
+      const cap = m.flag === 'c' ? 0 : b[m.to] ? VAL[b[m.to].toLowerCase()] : (m.flag === 'e' ? 100 : 0);
       m.o = cap ? 10 * cap - VAL[b[m.from].toLowerCase()] / 10 : 0;
       if (m.promo) m.o += 800;
     }
@@ -284,7 +332,7 @@
     if (stand > alpha) alpha = stand;
     if (qd <= 0) return alpha;
     const b = s.board;
-    const caps = legal(s).filter(m => b[m.to] || m.flag === 'e' || m.promo);
+    const caps = legal(s).filter(m => (b[m.to] && m.flag !== 'c') || m.flag === 'e' || m.promo);
     order(caps, s);
     for (const m of caps) {
       const sc = -quiesce(apply(s, m), -beta, -alpha, qd - 1);
@@ -364,7 +412,7 @@
   }
 
   const api = {
-    FILES, START_FEN, colorOf, sqName, parseFEN, initState, attacked, inCheck, legal, apply,
+    FILES, START_FEN, colorOf, sqName, parseFEN, initState, chess960FEN, chess960State, attacked, inCheck, legal, apply,
     positionKey, insufficientMaterial, san, bestMove, perft, LEVELS,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

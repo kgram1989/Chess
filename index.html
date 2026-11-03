@@ -112,6 +112,10 @@
   section[hidden] { display: none; }
   .side h2 { margin: 0 0 16px; font-size: 1.15rem; }
   button.big { width: 100%; padding: 12px; font-size: 1rem; margin-top: 8px; }
+  .pos960 { flex: 1; display: flex; gap: 8px; min-width: 0; }
+  .pos960 input { flex: 1; min-width: 0; font: inherit; font-size: .92rem; padding: 9px 11px; border-radius: 9px; border: 1px solid var(--border); background: var(--panel); color: var(--text); }
+  .pos960 button { flex: none; }
+  .note { font-size: .78rem; line-height: 1.4; color: var(--muted); margin: -4px 2px 12px; }
   .summary { font-size: .85rem; color: var(--muted); margin: -6px 2px 12px; }
   #gameStyleSlot { margin-bottom: 12px; padding: 10px 10px 2px; border: 1px dashed var(--border); border-radius: 10px; }
   body[data-svg] .piece { width: calc(var(--size) / 8 * .94); height: calc(var(--size) / 8 * .94); background: none; -webkit-text-stroke: 0; filter: drop-shadow(0 2px 2px rgba(0,0,0,.35)); }
@@ -150,6 +154,14 @@
         <select id="color"><option value="w">White</option><option value="b">Black</option><option value="r">Random</option></select></div>
       <div class="row"><label for="level">Difficulty</label>
         <select id="level"><option value="1">Beginner</option><option value="2">Easy</option><option value="3" selected>Casual</option><option value="4">Club player</option><option value="5">Master</option></select></div>
+      <div class="row"><label for="variant">Variant</label>
+        <select id="variant"><option value="std">Standard</option><option value="960">Chess960 (Fischer Random)</option></select></div>
+      <div id="opts960" hidden>
+        <div class="row"><label for="pos960">Position</label>
+          <span class="pos960"><input id="pos960" type="number" min="0" max="959" inputmode="numeric" aria-label="Chess960 position number, 0 to 959">
+          <button id="shuffleBtn" type="button" title="Pick a random starting position">🎲 Shuffle</button></span></div>
+        <div class="note">The back-rank pieces start shuffled. To castle, click your king, then the rook. The king still ends on g or c, the rook on f or d.</div>
+      </div>
       <div id="setupStyleSlot"></div>
       <button class="primary big" id="startBtn">Start game</button>
     </section>
@@ -224,13 +236,25 @@
 
   const LEVEL_NAMES = ['', 'Beginner', 'Easy', 'Casual', 'Club player', 'Master'];
 
+  // Variant: standard chess or Chess960 (position number 0-959, 518 = standard setup).
+  const is960 = () => $('variant').value === '960';
+  const pos960 = () => {
+    const n = Math.floor(+$('pos960').value);
+    return Number.isFinite(n) && n >= 0 && n <= 959 ? n : 518;
+  };
+  const shuffle960 = () => { $('pos960').value = Math.floor(Math.random() * 960); };
+  const startState = () => is960() ? C.chess960State(pos960()) : C.initState();
+  let gameIs960 = false;
+
   // Setup mode: show the menus and a start-position preview. Game mode: hide them.
   function showSetup() {
     token++; thinking = false; selected = null; started = false;
     $('setup').hidden = false; $('game').hidden = true;
     $('setupStyleSlot').appendChild($('styleBox'));
     $('styleBox').hidden = false; $('gameStyleSlot').hidden = true;
-    hist = [{ state: C.initState(), san: null, move: null }]; view = 0;
+    $('opts960').hidden = !is960();
+    gameIs960 = is960();
+    hist = [{ state: startState(), san: null, move: null }]; view = 0;
     player = $('color').value === 'b' ? 'b' : 'w'; flipped = player === 'b';
     update();
   }
@@ -243,9 +267,12 @@
     const c = $('color').value;
     player = c === 'r' ? (Math.random() < .5 ? 'w' : 'b') : c;
     flipped = player === 'b';
-    hist = [{ state: C.initState(), san: null, move: null }];
+    gameIs960 = is960();
+    if (gameIs960) $('pos960').value = pos960();
+    hist = [{ state: startState(), san: null, move: null }];
     view = 0;
-    $('summary').textContent = `You play ${player === 'w' ? 'White' : 'Black'} · ${LEVEL_NAMES[+$('level').value]}`;
+    $('summary').textContent = `You play ${player === 'w' ? 'White' : 'Black'} · ${LEVEL_NAMES[+$('level').value]}` +
+      (gameIs960 ? ` · Chess960 #${pos960()}` : '');
     update(); maybeAI();
   }
 
@@ -273,6 +300,9 @@
     const interactive = started && atEnd() && !thinking && !info.over && s.turn === player;
     const checkSq = C.inCheck(s) ? b.indexOf(s.turn === 'w' ? 'K' : 'k') : -1;
     const targets = selected === null || !atEnd() ? [] : moves.filter(m => m.from === selected);
+    const isTarget = i => targets.some(m => m.flag === 'c'
+      ? (gameIs960 && i === m.rook) || (i === m.to && castleToClear(m))
+      : m.to === i);
     let html = '';
     for (let v = 0; v < 64; v++) {
       const i = flipped ? 63 - v : v, r = i >> 3, c = i & 7, p = b[i];
@@ -285,7 +315,7 @@
       if ((v & 7) === 0) html += `<span class="coord r">${8 - r}</span>`;
       if (v >> 3 === 7) html += `<span class="coord f">${C.FILES[c]}</span>`;
       if (p) html += `<span class="piece ${C.colorOf(p)}">${pieceInner(p)}</span>`;
-      if (targets.some(m => m.to === i)) html += `<span class="dot${p || (s.ep === i && b[selected].toLowerCase() === 'p') ? ' cap' : ''}"></span>`;
+      if (isTarget(i)) html += `<span class="dot${p || (s.ep === i && b[selected].toLowerCase() === 'p') ? ' cap' : ''}"></span>`;
       html += '</div>';
     }
     $('board').innerHTML = html;
@@ -346,8 +376,14 @@
 
   // Slide the piece that just moved from its origin square to its destination.
   function slide(m) {
-    const from = document.querySelector(`.sq[data-i="${m.from}"]`).getBoundingClientRect();
-    const toSq = document.querySelector(`.sq[data-i="${m.to}"]`);
+    if (m.flag === 'c') {
+      slidePiece(m.rook, m.rookTo);
+      if (m.from !== m.to) slidePiece(m.from, m.to);
+    } else slidePiece(m.from, m.to);
+  }
+  function slidePiece(fromI, toI) {
+    const from = document.querySelector(`.sq[data-i="${fromI}"]`).getBoundingClientRect();
+    const toSq = document.querySelector(`.sq[data-i="${toI}"]`);
     const el = toSq.querySelector('.piece');
     if (!el) return;
     const to = toSq.getBoundingClientRect();
@@ -362,7 +398,7 @@
   function describe(s, m, san) {
     const piece = s.board[m.from], name = NAMES[piece.toLowerCase()];
     let t;
-    if (m.flag === 'c') t = m.to > m.from ? 'Castles kingside' : 'Castles queenside';
+    if (m.flag === 'c') t = m.side === 'k' ? 'Castles kingside' : 'Castles queenside';
     else {
       const victim = m.flag === 'e' ? 'p' : s.board[m.to].toLowerCase();
       t = victim ? `${name} ${C.sqName(m.from)} takes ${NAMES[victim].toLowerCase()} on ${C.sqName(m.to)}`
@@ -403,7 +439,11 @@
     if (!started || !atEnd() || thinking || info.over || live().turn !== player) return;
     const s = live();
     if (selected !== null) {
-      const ms = moves.filter(m => m.from === selected && m.to === i);
+      // Castling: click the rook (always works), or the king's destination when that
+      // isn't also an ordinary king move.
+      const castle = moves.find(m => m.from === selected && m.flag === 'c' && (i === m.rook || (i === m.to && castleToClear(m))));
+      if (castle) { play(castle); return; }
+      const ms = moves.filter(m => m.from === selected && m.to === i && m.flag !== 'c');
       if (ms.length > 1) { askPromo(ms); return; }
       if (ms.length === 1) { play(ms[0]); return; }
     }
@@ -411,6 +451,10 @@
     selected = p && C.colorOf(p) === player && i !== selected ? i : null;
     render();
   }
+
+  // Can a castling move be entered by clicking the king's destination square? Not when the
+  // king doesn't move or an ordinary king move goes to the same square (possible in Chess960).
+  const castleToClear = m => m.to !== m.from && !moves.some(o => o.from === m.from && o.to === m.to && o.flag !== 'c');
 
   function askPromo(ms) {
     $('promoChoices').innerHTML = ms.map((m, k) =>
@@ -447,6 +491,13 @@
   $('startBtn').addEventListener('click', newGame);
   $('newBtn').addEventListener('click', showSetup);
   $('styleBtn').addEventListener('click', () => { $('gameStyleSlot').hidden = !$('gameStyleSlot').hidden; });
+  $('variant').addEventListener('change', () => {
+    if (is960() && $('pos960').value === '') shuffle960();
+    if (!started) showSetup();
+  });
+  $('pos960').addEventListener('input', () => { if (!started && $('pos960').value !== '') showSetup(); });
+  $('pos960').addEventListener('change', () => { $('pos960').value = pos960(); if (!started) showSetup(); });
+  $('shuffleBtn').addEventListener('click', () => { shuffle960(); if (!started) showSetup(); });
   $('color').addEventListener('change', () => { if (!started) { player = $('color').value === 'b' ? 'b' : 'w'; flipped = player === 'b'; render(); } });
   $('flipBtn').addEventListener('click', () => { flipped = !flipped; render(); });
   $('firstBtn').addEventListener('click', () => go(0));
@@ -454,7 +505,7 @@
   $('nextBtn').addEventListener('click', () => go(view + 1));
   $('lastBtn').addEventListener('click', () => go(hist.length - 1));
   document.addEventListener('keydown', e => {
-    if (e.target.tagName === 'SELECT') return;
+    if (e.target.tagName === 'SELECT' || e.target.tagName === 'INPUT') return;
     if (e.key === 'ArrowLeft') { go(view - 1); e.preventDefault(); }
     else if (e.key === 'ArrowRight') { go(view + 1); e.preventDefault(); }
     else if (e.key === 'Home') { go(0); e.preventDefault(); }
