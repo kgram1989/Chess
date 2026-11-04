@@ -52,7 +52,14 @@
   .who { display: flex; align-items: center; gap: 8px; font-weight: 600; }
   .avatar { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: var(--chip); border: 1px solid var(--border); font-size: .95rem; }
   .adv { font-size: .78rem; color: var(--muted); font-weight: 600; }
-  .caps { font-size: 1.15rem; letter-spacing: -3px; font-family: "Segoe UI Symbol", sans-serif; color: var(--muted); white-space: nowrap; overflow: hidden; }
+  .who { flex: none; }
+  /* Captured pieces: one group per piece type; pieces in a group overlap; groups wrap onto a
+     second row on narrow screens instead of being cut off. */
+  .caps { flex: 1 1 auto; min-width: 0; display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; row-gap: 2px;
+    font-size: 1.15rem; line-height: 1; font-family: "Segoe UI Symbol", sans-serif; color: var(--muted); }
+  .caps .grp { display: inline-flex; margin-left: 5px; }
+  .caps .cp { display: block; }
+  .caps .cp + .cp { margin-left: -.45em; }
 
   .nav { display: flex; gap: 8px; margin-top: 10px; }
   .nav button { flex: 1; font-size: 1.05rem; padding: 9px 0; }
@@ -124,7 +131,7 @@
   body[data-svg] .piece img, #moves .pc img { width: 100%; height: 100%; display: block; }
   body[data-svg] .modal .piece { width: min(64px, 13vw); height: min(64px, 13vw); }
   body[data-svg] #moves .pc { background: #cdbfa6; }
-  .caps img.cap { width: 22px; height: 22px; margin-right: -9px; vertical-align: middle; }
+  .caps img.cap { width: 1.25em; height: 1.25em; display: block; }
   .credits { font-size: .72rem; line-height: 1.4; color: var(--muted); margin: -2px 2px 10px; } .credits a { color: inherit; }
   .hint { font-size: .75rem; color: var(--muted); margin-top: 8px; }
   .modal { position: fixed; inset: 0; background: rgba(0, 0, 0, .55); display: none; align-items: center; justify-content: center; z-index: 50; backdrop-filter: blur(2px); }
@@ -138,40 +145,61 @@
   .touch-only { display: none; }
   @media (hover: none) { .kbd-only { display: none; } .touch-only { display: inline; } }
 
-  /* ---- Short landscape screens (phones turned sideways) ---- */
-  @media (orientation: landscape) and (max-height: 540px) {
-    .app { --vh: 100vh; max-width: none; flex-wrap: nowrap; gap: 12px; align-items: flex-start;
-      padding: 8px max(12px, env(safe-area-inset-right)) 8px max(12px, env(safe-area-inset-left)); }
-    h1 { display: none; }
-    .left { --size: min(calc(var(--vh) - 84px), 620px); flex: none; width: calc(var(--size) + 52px);
-      display: grid; grid-template-columns: var(--size) 44px; column-gap: 8px; }
-    .left > .bar, .left > .frame { grid-column: 1; }
-    .bar { min-height: 30px; margin: 2px; font-size: .85rem; }
-    .avatar { width: 24px; height: 24px; }
-    .frame { padding: 6px; }
-    .nav { grid-column: 2; grid-row: 1 / span 3; flex-direction: column; justify-content: center; margin: 0; }
-    .nav button { flex: none; height: 44px; padding: 0; }
-    .side { flex: 1 1 auto; min-width: 0; max-width: 400px; padding: 12px 14px; max-height: calc(var(--vh) - 16px); overflow-y: auto; overscroll-behavior: contain; }
-    #status { padding: 8px 12px; min-height: 40px; margin-bottom: 10px; }
-    .btns { margin: 10px 0; }
-    #moves { height: 140px; }
-    .side h2 { margin-bottom: 10px; }
-    .btns { gap: 6px; } .btns button { padding: 8px 6px; }
+  /* ---- Phones, portrait: board edge to edge across the full width; title hidden during a
+     game. Status, moves and settings follow below and the page scrolls to them. ---- */
+  @media (orientation: portrait) and (max-width: 600px) {
+    .app { --vh: 100vh; gap: 0; padding: env(safe-area-inset-top) 0 max(16px, env(safe-area-inset-bottom)); }
+    h1 { margin: 12px 12px 6px; }
+    body.playing h1 { display: none; }
+    .left { flex: 0 0 100%; width: 100%; --size: min(100vw, calc(var(--vh) - 150px)); }
+    .frame { width: var(--size); margin: 0 auto; padding: 0; border-radius: 0; }
+    #board { border-radius: 0; }
+    .bar { margin: 0; padding: 4px 12px; min-height: 42px; }
+    .nav { margin: 6px 12px 0; }
+    .side { flex: 1 1 100%; max-width: none; margin: 10px 12px 0; padding: 14px; }
   }
-  @media (orientation: landscape) and (max-height: 540px) and (max-width: 680px) {
+
+  /* ---- Phones, landscape: board fills the full screen height on the left; player bars,
+     status/moves panel (scrolls on its own) and the move buttons sit in a column on the right. ---- */
+  @media (orientation: landscape) and (max-height: 540px) {
+    .app, .left { --vh: 100vh; --size: min(var(--vh), calc(100vw - 236px - env(safe-area-inset-left) - env(safe-area-inset-right)), 620px); }
+    .app { max-width: none; height: var(--vh); overflow: hidden; display: grid; gap: 0 12px; justify-content: center; align-items: stretch;
+      grid-template-columns: var(--size) minmax(0, 420px); grid-template-rows: auto minmax(0, 1fr) auto auto;
+      padding: 0 max(10px, env(safe-area-inset-right)) 0 env(safe-area-inset-left); }
+    h1 { display: none; }
+    .left { display: contents; }
+    .frame { grid-column: 1; grid-row: 1 / -1; align-self: center; padding: 0; border-radius: 0; }
+    #board { border-radius: 0; }
+    .bar { grid-column: 2; min-height: 36px; margin: 2px 0; font-size: .85rem; }
+    .bar.top { grid-row: 1; } .bar.bottom { grid-row: 4; }
+    .avatar { width: 24px; height: 24px; }
+    .caps { font-size: 1rem; }
+    .side { grid-column: 2; grid-row: 2; min-height: 0; max-width: none; padding: 10px 12px; overflow-y: auto; overscroll-behavior: contain; }
+    .nav { grid-column: 2; grid-row: 3; margin: 6px 0 0; gap: 6px; }
+    .nav button { padding: 6px 0; }
+    #status { padding: 8px 12px; min-height: 40px; margin-bottom: 8px; }
+    .summary { margin-bottom: 8px; }
+    .btns { margin: 8px 0; gap: 6px; } .btns button { padding: 8px 6px; }
+    #moves { height: 150px; }
+    .side h2 { margin-bottom: 10px; }
+  }
+  @media (orientation: landscape) and (max-height: 540px) and (max-width: 700px) {
     #moves .sub { display: none; }
     #moves .m { gap: 6px; padding: 5px 6px; }
   }
-  @supports (height: 100dvh) { @media (orientation: landscape) and (max-height: 540px) { .app { --vh: 100dvh; } } }
+  @supports (height: 100dvh) {
+    @media (orientation: portrait) and (max-width: 600px) { .app { --vh: 100dvh; } }
+    @media (orientation: landscape) and (max-height: 540px) { .app, .left { --vh: 100dvh; } }
+  }
 </style>
 </head>
 <body data-set="cburnett" data-svg="1">
 <div class="app">
   <div class="left">
     <h1><span class="logo">♞</span> Chess vs Computer</h1>
-    <div class="bar"><span class="who"><span class="avatar" id="topAv"></span><span id="topName"></span><span class="adv" id="topAdv"></span></span><span class="caps" id="topCaps"></span></div>
+    <div class="bar top"><span class="who"><span class="avatar" id="topAv"></span><span id="topName"></span><span class="adv" id="topAdv"></span></span><span class="caps" id="topCaps"></span></div>
     <div class="frame"><div id="board" role="grid" aria-label="Chess board"></div></div>
-    <div class="bar"><span class="who"><span class="avatar" id="botAv"></span><span id="botName"></span><span class="adv" id="botAdv"></span></span><span class="caps" id="botCaps"></span></div>
+    <div class="bar bottom"><span class="who"><span class="avatar" id="botAv"></span><span id="botName"></span><span class="adv" id="botAdv"></span></span><span class="caps" id="botCaps"></span></div>
     <div class="nav">
       <button id="firstBtn" title="First position (Home)">⏮</button>
       <button id="prevBtn" title="Previous move (←)">◀</button>
@@ -228,7 +256,6 @@
   const C = window.Chess;
   const GLYPH = { k: '♚', q: '♛', r: '♜', b: '♝', n: '♞', p: '♟' };   // solid glyphs, colored via CSS
   const VALS = { p: 1, n: 3, b: 3, r: 5, q: 9 };
-  const START_COUNT = { p: 8, n: 2, b: 2, r: 2, q: 1 };
   const MIN_THINK_MS = 900;     // computer never replies faster than this
   const SLIDE_MS = 480;         // piece slide duration
   const $ = id => document.getElementById(id);
@@ -281,6 +308,7 @@
   // Setup mode: show the menus and a start-position preview. Game mode: hide them.
   function showSetup() {
     token++; thinking = false; selected = null; started = false;
+    document.body.classList.remove('playing');
     $('setup').hidden = false; $('game').hidden = true;
     $('setupStyleSlot').appendChild($('styleBox'));
     $('styleBox').hidden = false; $('gameStyleSlot').hidden = true;
@@ -300,6 +328,7 @@
 
   function newGame() {
     token++; thinking = false; selected = null; started = true;
+    document.body.classList.add('playing');
     $('setup').hidden = true; $('game').hidden = false;
     resetScroll();
     $('gameStyleSlot').appendChild($('styleBox'));
@@ -375,14 +404,20 @@
       st.textContent = (s.turn === player ? 'Your move' : "Computer's move") + (C.inCheck(s) ? ' — check!' : '');
     }
 
-    // captured pieces + material (for the viewed position)
-    const count = { w: {}, b: {} }, mat = { w: 0, b: 0 };
-    for (const p of b) if (p) { const t = p.toLowerCase(), col = C.colorOf(p); count[col][t] = (count[col][t] || 0) + 1; if (VALS[t]) mat[col] += VALS[t]; }
+    // Material on the board, and the pieces actually captured up to the viewed move. Captures
+    // come from the move history, so a promoted pawn is not shown as a captured pawn.
+    const mat = { w: 0, b: 0 };
+    for (const p of b) if (p && VALS[p.toLowerCase()]) mat[C.colorOf(p)] += VALS[p.toLowerCase()];
     const capsOf = col => {
+      const n = {};
+      for (let k = 1; k <= view; k++) {
+        const c = hist[k].cap;
+        if (c && C.colorOf(c) === col) n[c.toLowerCase()] = (n[c.toLowerCase()] || 0) + 1;
+      }
       let out = '';
-      for (const t of 'qrbnp') {
-        const n = Math.max(0, START_COUNT[t] - (count[col][t] || 0));
-        out += (SVG_SETS[pieceSet] ? pieceInner(col === 'w' ? t.toUpperCase() : t).replace('<img', '<img class="cap"') : glyph(t)).repeat(n);
+      for (const t of 'qrbnp') if (n[t]) {
+        const one = SVG_SETS[pieceSet] ? pieceInner(col === 'w' ? t.toUpperCase() : t).replace('<img', '<img class="cap"') : glyph(t);
+        out += `<span class="grp" title="${n[t]} × ${NAMES[t].toLowerCase()}">${`<span class="cp">${one}</span>`.repeat(n[t])}</span>`;
       }
       return out;
     };
@@ -462,7 +497,8 @@
   function play(m) {
     const s = live(), text = C.san(s, m, moves);
     const follow = atEnd();
-    hist.push({ state: C.apply(s, m), san: text, move: m, piece: s.board[m.from], plain: describe(s, m, text) });
+    const cap = m.flag === 'e' ? (s.turn === 'w' ? 'p' : 'P') : m.flag === 'c' ? '' : s.board[m.to];
+    hist.push({ state: C.apply(s, m), san: text, move: m, piece: s.board[m.from], cap, plain: describe(s, m, text) });
     selected = null;
     if (follow) view = hist.length - 1;
     update(follow ? m : null); maybeAI();
